@@ -4,7 +4,7 @@
  * See the LICENSE file for details.
  */
 
-import React, { useCallback, useEffect } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { observer } from "mobx-react";
 import { useParams } from "next/navigation";
 // plane imports
@@ -15,11 +15,14 @@ import type { EIssuesStoreType, IBlockUpdateData, TIssue } from "@plane/types";
 import { EIssueLayoutTypes, GANTT_TIMELINE_TYPE } from "@plane/types";
 import { renderFormattedPayloadDate } from "@plane/utils";
 // components
+import { AutoScheduleModal, scheduleSuccessors } from "@/components/gantt-chart/dependencies";
+import type { TScheduleUpdate, TScheduleWarning } from "@/components/gantt-chart/dependencies";
 import { TimeLineTypeContext } from "@/components/gantt-chart/contexts";
 import { GanttChartRoot } from "@/components/gantt-chart/root";
 import { IssueGanttSidebar } from "@/components/gantt-chart/sidebar/issues/sidebar";
 // hooks
 import { useIssues } from "@/hooks/store/use-issues";
+import { useProject } from "@/hooks/store/use-project";
 import { useUserPermissions } from "@/hooks/store/user";
 import { useIssueStoreType } from "@/hooks/use-issue-layout-store";
 import { useIssuesActions } from "@/hooks/use-issues-actions";
@@ -52,9 +55,17 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
   const deps = useGanttDependencies(workspaceSlug?.toString(), projectId?.toString(), !isEpic);
 
   const storeType = useIssueStoreType() as GanttStoreType;
-  const { issues, issuesFilter } = useIssues(storeType);
+  const { issues, issuesFilter, issueMap } = useIssues(storeType);
+  const { getProjectIdentifierById } = useProject();
   const { fetchIssues, fetchNextIssues, updateIssue, quickAddIssue } = useIssuesActions(storeType);
-  const { initGantt } = useTimeLineChart(GANTT_TIMELINE_TYPE.ISSUE);
+  const { initGantt, autoSchedule } = useTimeLineChart(GANTT_TIMELINE_TYPE.ISSUE);
+  const [schedulePreview, setSchedulePreview] = useState<{
+    updates: TScheduleUpdate[];
+    warnings: TScheduleWarning[];
+    save: (includeSuccessors: boolean) => Promise<void>;
+  } | null>(null);
+
+  useEffect(() => setSchedulePreview(null), [workspaceSlug, projectId]);
   // store hooks
   const { allowPermissions } = useUserPermissions();
 
@@ -92,22 +103,70 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
   };
 
   const isAllowed = allowPermissions([EUserPermissions.ADMIN, EUserPermissions.MEMBER], EUserPermissionsLevel.PROJECT);
+  const dependencyActions =
+    isAllowed && !isEpic && deps
+      ? { otherPairs: deps.otherPairs, create: deps.createDependency, remove: deps.removeDependency }
+      : undefined;
+  const hasDependencyActions = !!dependencyActions;
   const updateBlockDates = useCallback(
-    (
-      updates: {
-        id: string;
-        start_date?: string;
-        target_date?: string;
-      }[]
-    ) =>
-      issues.updateIssueDates(workspaceSlug.toString(), updates, projectId.toString()).catch(() => {
-        setToast({
-          type: TOAST_TYPE.ERROR,
-          title: t("toast.error"),
-          message: "Error while updating work item dates, Please try again Later",
-        });
-      }),
-    [issues, projectId, workspaceSlug]
+    async (updates: { id: string; start_date?: string; target_date?: string }[]) => {
+      const saveDates = async (payload: typeof updates) => {
+        try {
+          await issues.updateIssueDates(workspaceSlug.toString(), payload, projectId.toString());
+          await deps?.refresh();
+        } catch {
+          setToast({
+            type: TOAST_TYPE.ERROR,
+            title: t("toast.error"),
+            message: "Error while updating work item dates, Please try again Later",
+          });
+        }
+      };
+      if (!autoSchedule || !deps || !hasDependencyActions || updates.length !== 1) {
+        await saveDates(updates);
+        return;
+      }
+      const tasks = Object.entries(deps.issueDates).map(([id, dates]) => {
+        const liveIssue = issueMap[id];
+        return {
+          id,
+          start: (liveIssue ? liveIssue.start_date : dates.start_date) ?? null,
+          end: (liveIssue ? liveIssue.target_date : dates.target_date) ?? null,
+        };
+      });
+      const drag = updates[0];
+      const current = tasks.find((task) => task.id === drag.id);
+      const result = scheduleSuccessors(tasks, deps.dependencies, {
+        id: drag.id,
+        start: drag.start_date ?? current?.start ?? null,
+        end: drag.target_date ?? current?.end ?? null,
+      });
+      if (result.cycle) {
+        setToast({ type: TOAST_TYPE.WARNING, title: "Có vòng lặp phụ thuộc — chỉ đổi việc này" });
+      }
+      if (result.updates.length === 0) {
+        await saveDates(updates);
+        return;
+      }
+      setSchedulePreview({
+        updates: result.updates,
+        warnings: result.warnings,
+        save: (includeSuccessors) =>
+          saveDates(
+            includeSuccessors
+              ? [
+                  drag,
+                  ...result.updates.map(({ id, newStart, newEnd }) => ({
+                    id,
+                    start_date: newStart ?? undefined,
+                    target_date: newEnd ?? undefined,
+                  })),
+                ]
+              : updates
+          ),
+      });
+    },
+    [autoSchedule, deps, hasDependencyActions, issueMap, issues, projectId, workspaceSlug, t]
   );
 
   const quickAdd =
@@ -129,17 +188,19 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
     <IssueLayoutHOC layout={EIssueLayoutTypes.GANTT}>
       <TimeLineTypeContext.Provider value={GANTT_TIMELINE_TYPE.ISSUE}>
         <div className="h-full w-full">
+          {schedulePreview && deps && (
+            <AutoScheduleModal
+              updates={schedulePreview.updates}
+              warnings={schedulePreview.warnings}
+              issueDates={deps.issueDates}
+              projectIdentifier={getProjectIdentifierById(projectId.toString())}
+              onSave={schedulePreview.save}
+              onClose={() => setSchedulePreview(null)}
+            />
+          )}
           <GanttChartRoot
             dependencies={deps?.dependencies}
-            dependencyActions={
-              isAllowed && !isEpic && deps
-                ? {
-                    otherPairs: deps.otherPairs,
-                    create: deps.createDependency,
-                    remove: deps.removeDependency,
-                  }
-                : undefined
-            }
+            dependencyActions={dependencyActions}
             border={false}
             title={isEpic ? t("epic.label", { count: 2 }) : t("issue.label", { count: 2 })}
             loaderTitle={isEpic ? t("epic.label", { count: 2 }) : t("issue.label", { count: 2 })}

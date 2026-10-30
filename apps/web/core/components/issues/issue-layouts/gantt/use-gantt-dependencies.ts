@@ -18,25 +18,31 @@ import { IssueService } from "@/services/issue";
 
 const issueService = new IssueService();
 
+type GanttRelations = ReturnType<typeof extractGanttRelations> & {
+  issueDates: Record<string, Pick<TIssue, "start_date" | "target_date" | "name" | "sequence_id">>;
+};
+
 export function useGanttDependencies(
   workspaceSlug: string | undefined,
   projectId: string | undefined,
   enabled: boolean
 ) {
   const { relation } = useIssueDetail();
-  const [relations, setRelations] = useState<ReturnType<typeof extractGanttRelations>>();
+  const [relations, setRelations] = useState<GanttRelations>();
   const relationsRef = useRef(relations);
   const generation = useRef(0);
   const saving = useRef(false);
   const projectIssueIds = useRef(new Set<string>());
-  const updateRelations = (next: ReturnType<typeof extractGanttRelations> | undefined) => {
+  const updateRelations = (next: GanttRelations | undefined) => {
     relationsRef.current = next;
     setRelations(next);
   };
   const requestCounter = useRef(0);
+  const refreshRef = useRef<() => Promise<void>>(async () => {});
 
   useEffect(() => {
     generation.current++;
+    refreshRef.current = async () => {};
     saving.current = false;
     projectIssueIds.current.clear();
     updateRelations(undefined);
@@ -50,7 +56,7 @@ export function useGanttDependencies(
       if (saving.current) return;
       const request = ++requestCounter.current;
       try {
-        const issues: Parameters<typeof extractGanttRelations>[0] = [];
+        const issues: TIssue[] = [];
         // shortcut: fetch at most 10,000 work items, raise the cap if larger projects need complete arrows.
         for (let page = 0; page < 10; page++) {
           // oxlint-disable-next-line no-await-in-loop -- Each response decides whether another page exists.
@@ -71,17 +77,27 @@ export function useGanttDependencies(
         }
         if (request === requestCounter.current) {
           projectIssueIds.current = new Set(issues.map((issue) => issue.id));
-          updateRelations(extractGanttRelations(issues, projectId));
+          updateRelations({
+            ...extractGanttRelations(issues, projectId),
+            issueDates: Object.fromEntries(
+              issues.map(({ id, start_date, target_date, name, sequence_id }) => [
+                id,
+                { start_date, target_date, name, sequence_id },
+              ])
+            ),
+          });
         }
       } catch (error) {
         if (request === requestCounter.current) console.error("Failed to fetch Gantt dependencies", error);
       }
     };
 
+    refreshRef.current = fetchDependencies;
     void fetchDependencies();
     window.addEventListener("focus", fetchDependencies);
     return () => {
       invalidateRequests();
+      refreshRef.current = async () => {};
       window.removeEventListener("focus", fetchDependencies);
     };
   }, [workspaceSlug, projectId, enabled]);
@@ -158,6 +174,7 @@ export function useGanttDependencies(
     ? undefined
     : {
         ...relations,
+        refresh: () => refreshRef.current(),
         createDependency: (pred: string, succ: string) => mutateDependency(pred, succ, false),
         removeDependency: (pred: string, succ: string) => mutateDependency(pred, succ, true),
       };

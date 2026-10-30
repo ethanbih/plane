@@ -1,0 +1,108 @@
+/**
+ * Copyright (c) 2023-present Plane Software, Inc. and contributors
+ * SPDX-License-Identifier: AGPL-3.0-only
+ * See the LICENSE file for details.
+ */
+
+import { useRef, useState } from "react";
+import { Dialog } from "@headlessui/react";
+import { X } from "lucide-react";
+import { Button } from "@plane/propel/button";
+import { EModalPosition, EModalWidth, ModalCore } from "@plane/ui";
+import type { TScheduleUpdate, TScheduleWarning } from "./scheduling";
+
+type Props = {
+  updates: TScheduleUpdate[];
+  warnings: TScheduleWarning[];
+  issueDates: Record<string, { name: string; sequence_id: number }>;
+  projectIdentifier?: string;
+  onSave: (includeSuccessors: boolean) => Promise<void>;
+  onClose: () => void;
+};
+
+const formatDate = (date: string | null) => (date ? `${date.slice(8, 10)}/${date.slice(5, 7)}` : "—");
+
+export function AutoScheduleModal(props: Props) {
+  const { updates, warnings, issueDates, projectIdentifier, onSave, onClose } = props;
+  const saving = useRef(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const code = (id: string) => {
+    const sequenceId = issueDates[id]?.sequence_id ?? id;
+    return projectIdentifier ? `${projectIdentifier}-${sequenceId}` : String(sequenceId);
+  };
+  const save = async (includeSuccessors: boolean) => {
+    if (saving.current) return;
+    saving.current = true;
+    setIsSaving(true);
+    try {
+      await onSave(includeSuccessors);
+    } finally {
+      onClose();
+    }
+  };
+
+  return (
+    <ModalCore isOpen handleClose={() => void save(false)} position={EModalPosition.CENTER} width={EModalWidth.XL}>
+      <div className="px-5 py-4">
+        <div className="flex items-center justify-between gap-2">
+          <Dialog.Title as="h3" className="text-18 font-medium">
+            Tự lùi lịch các việc sau
+          </Dialog.Title>
+          <button
+            type="button"
+            aria-label="Đóng"
+            disabled={isSaving}
+            className="rounded p-1 text-tertiary hover:bg-layer-transparent-hover"
+            onClick={() => void save(false)}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="mt-3 max-h-80 overflow-auto">
+          <table className="w-full text-left text-13">
+            <thead className="text-tertiary">
+              <tr>
+                <th className="p-2">Công việc</th>
+                <th className="p-2">Bắt đầu</th>
+                <th className="p-2">Kết thúc</th>
+              </tr>
+            </thead>
+            <tbody>
+              {updates.map((update) => (
+                <tr key={update.id} className="border-t border-subtle">
+                  <td className="p-2">
+                    <span className="text-tertiary">{code(update.id)}</span> {issueDates[update.id]?.name}
+                  </td>
+                  <td className="p-2 whitespace-nowrap">
+                    {formatDate(update.oldStart)} → {formatDate(update.newStart)}
+                  </td>
+                  <td className="p-2 whitespace-nowrap">
+                    {formatDate(update.oldEnd)} → {formatDate(update.newEnd)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {warnings.length > 0 && (
+          <ul className="mt-3 text-11 text-tertiary">
+            {warnings.map(({ id, reason }) => (
+              <li key={`${id}-${reason}`}>
+                {code(id)}:{" "}
+                {reason === "missing_dates" ? "chưa có ngày, không tự lùi" : "việc trước chưa có ngày kết thúc"}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="secondary" disabled={isSaving} onClick={() => void save(false)}>
+            Chỉ đổi việc này
+          </Button>
+          <Button variant="primary" disabled={isSaving} loading={isSaving} onClick={() => void save(true)}>
+            Lùi {updates.length} việc sau
+          </Button>
+        </div>
+      </div>
+    </ModalCore>
+  );
+}

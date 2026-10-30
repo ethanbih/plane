@@ -45,6 +45,8 @@ export interface IBaseTimelineStore {
   isDragging: boolean;
   isDependencyEnabled: boolean;
   showDependencies: boolean;
+  autoSchedule: boolean;
+  toggleAutoSchedule: () => void;
   canEditDependencies: boolean;
   dependencyDraftFromId: string | null;
   setCanEditDependencies: (value: boolean) => void;
@@ -100,6 +102,14 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
     }
   })();
 
+  autoSchedule = (() => {
+    try {
+      return localStorage.getItem("bih-gantt-auto-schedule") === "1";
+    } catch {
+      return false;
+    }
+  })();
+
   constructor(_rootStore: RootStore) {
     makeObservable(this, {
       // observables
@@ -111,6 +121,8 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
       activeBlockId: observable.ref,
       renderView: observable,
       showDependencies: observable,
+      autoSchedule: observable,
+      toggleAutoSchedule: action.bound,
       canEditDependencies: observable,
       dependencyDraftFromId: observable,
       setCanEditDependencies: action.bound,
@@ -151,6 +163,15 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
 
   endDependencyDraft = () => {
     this.dependencyDraftFromId = null;
+  };
+
+  toggleAutoSchedule = () => {
+    this.autoSchedule = !this.autoSchedule;
+    try {
+      localStorage.setItem("bih-gantt-auto-schedule", this.autoSchedule ? "1" : "0");
+    } catch {
+      // Keep the toggle usable when browser storage is unavailable.
+    }
   };
 
   toggleShowDependencies = () => {

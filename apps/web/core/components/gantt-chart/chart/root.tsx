@@ -192,6 +192,7 @@ export const ChartViewRoot = observer(function ChartViewRoot(props: ChartViewRoo
     >
       <GanttChartHeader
         showDependencyToggle={dependencies !== undefined}
+        showAutoScheduleToggle={!!dependencyActions}
         blockIds={blockIds}
         fullScreenMode={fullScreenMode}
         toggleFullScreenMode={() => setFullScreenMode((prevData) => !prevData)}

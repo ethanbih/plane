@@ -21,6 +21,7 @@ import { GANTT_BREADCRUMBS_HEIGHT } from "../constants";
 
 type Props = {
   showDependencyToggle?: boolean;
+  showAutoScheduleToggle?: boolean;
   blockIds: string[];
   fullScreenMode: boolean;
   handleChartView: (view: TGanttViews) => void;
@@ -35,7 +36,8 @@ export const GanttChartHeader = observer(function GanttChartHeader(props: Props)
   const { blockIds, fullScreenMode, handleChartView, handleToday, loaderTitle, toggleFullScreenMode, showToday } =
     props;
   // chart hook
-  const { currentView, showDependencies, toggleShowDependencies } = useTimeLineChartStore();
+  const { currentView, showDependencies, toggleShowDependencies, autoSchedule, toggleAutoSchedule } =
+    useTimeLineChartStore();
 
   return (
     <Row
@@ -85,6 +87,19 @@ export const GanttChartHeader = observer(function GanttChartHeader(props: Props)
           onClick={toggleShowDependencies}
         >
           Phụ thuộc
+        </button>
+      )}
+
+      {props.showAutoScheduleToggle && (
+        <button
+          type="button"
+          className={cn("rounded-md bg-layer-transparent p-1 px-2 text-11 hover:bg-layer-transparent-hover", {
+            "bg-layer-transparent-selected": autoSchedule,
+          })}
+          aria-pressed={autoSchedule}
+          onClick={toggleAutoSchedule}
+        >
+          Tự lùi lịch
         </button>
       )}
 
