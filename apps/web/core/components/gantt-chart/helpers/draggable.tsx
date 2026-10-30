@@ -11,6 +11,7 @@ import { observer } from "mobx-react";
 import type { IGanttBlock } from "@plane/types";
 // helpers
 import { cn } from "@plane/utils";
+import { useTimeLineChartStore } from "@/hooks/use-timeline-chart";
 // components
 import { LeftResizable } from "./blockResizables/left-resizable";
 import { RightResizable } from "./blockResizables/right-resizable";
@@ -36,7 +37,10 @@ export const ChartDraggable = observer(function ChartDraggable(props: Props) {
     enableBlockRightResize,
     enableBlockMove,
     isMoving,
+    enableDependency,
   } = props;
+
+  const { canEditDependencies, showDependencies, startDependencyDraft } = useTimeLineChartStore();
 
   return (
     <div className="group relative z-[5] inline-flex h-full w-full cursor-pointer items-center font-medium transition-all">
@@ -55,6 +59,22 @@ export const ChartDraggable = observer(function ChartDraggable(props: Props) {
       >
         {blockToRender({ ...block.data, meta: block.meta })}
       </div>
+      {(typeof enableDependency === "function" ? enableDependency(block.id) : enableDependency) &&
+        canEditDependencies &&
+        showDependencies && (
+          <button
+            type="button"
+            aria-label="Kéo để nối phụ thuộc"
+            className="absolute top-1/2 -right-3 z-[7] h-2.5 w-2.5 -translate-y-1/2 cursor-crosshair rounded-full border border-strong bg-layer-1 opacity-0 group-hover:opacity-100 focus:opacity-100"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => {
+              if (e.button !== 0) return;
+              e.stopPropagation();
+              e.preventDefault();
+              startDependencyDraft(block.id);
+            }}
+          />
+        )}
       {/* right resize drag handle */}
       <RightResizable
         enableBlockRightResize={enableBlockRightResize}

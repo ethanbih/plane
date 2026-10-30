@@ -28,13 +28,14 @@ import { IssueBulkOperationsRoot } from "@/components/issues/bulk-operations";
 import { useBulkOperationStatus } from "@/hooks/use-bulk-operation-status";
 // local imports
 import { DEFAULT_BLOCK_WIDTH, GANTT_SELECT_GROUP, HEADER_HEIGHT } from "../constants";
-import type { TGanttDependency } from "../dependencies";
+import type { TGanttDependency, TGanttDependencyActions } from "../dependencies";
 import { GanttDependencyLayer } from "../dependencies";
 import { getItemPositionWidth } from "../views";
 import { TimelineDragHelper } from "./timeline-drag-helper";
 
 type Props = {
   dependencies?: TGanttDependency[];
+  dependencyActions?: TGanttDependencyActions;
   blockIds: string[];
   canLoadMoreBlocks?: boolean;
   loadMoreBlocks?: () => void;
@@ -65,6 +66,7 @@ type Props = {
 export const GanttChartMainContent = observer(function GanttChartMainContent(props: Props) {
   const {
     dependencies,
+    dependencyActions,
     blockIds,
     loadMoreBlocks,
     blockToRender,
@@ -90,7 +92,12 @@ export const GanttChartMainContent = observer(function GanttChartMainContent(pro
   // refs
   const ganttContainerRef = useRef<HTMLDivElement>(null);
   // chart hook
-  const { currentView, currentViewData, showDependencies } = useTimeLineChartStore();
+  const { currentView, currentViewData, showDependencies, setCanEditDependencies } = useTimeLineChartStore();
+  const canEditDependencies = !!dependencyActions;
+  useEffect(() => {
+    setCanEditDependencies(canEditDependencies);
+    return () => setCanEditDependencies(false);
+  }, [canEditDependencies, setCanEditDependencies]);
   // plane web hooks
   const isBulkOperationsEnabled = useBulkOperationStatus();
 
@@ -228,10 +235,12 @@ export const GanttChartMainContent = observer(function GanttChartMainContent(pro
                       showAllBlocks={showAllBlocks}
                       updateBlockDates={updateBlockDates}
                     />
-                    {!!dependencies?.length && showDependencies && (
+                    {showDependencies && (!!dependencies?.length || !!dependencyActions) && (
                       <GanttDependencyLayer
                         blockIds={blockIds}
-                        dependencies={dependencies}
+                        dependencies={dependencies ?? []}
+                        dependencyActions={dependencyActions}
+                        ganttContainerRef={ganttContainerRef}
                         showAllBlocks={showAllBlocks}
                         width={itemsContainerWidth}
                       />

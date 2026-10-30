@@ -6,7 +6,13 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractBlockedByDependencies, getDependencyPath, isDependencyViolated } from "./dependency-utils.ts";
+import {
+  extractBlockedByDependencies,
+  extractGanttRelations,
+  validateNewDependency,
+  getDependencyPath,
+  isDependencyViolated,
+} from "./dependency-utils.ts";
 
 test("extracts only unique same-project blocked_by predecessors", () => {
   const relation = { id: "A", project_id: "project", relation_type: "blocked_by" };
@@ -61,4 +67,55 @@ test("routes close or backward links through the gap between rows", () => {
 
 test("draws a straight same-row link and rounds coordinates", () => {
   assert.equal(getDependencyPath({ x: 10.123, y: 20.456 }, { x: 40.789, y: 20.456 }, 40), "M 10.1 20.5 H 40.8");
+});
+
+const chain = [
+  { predecessorId: "A", successorId: "B" },
+  { predecessorId: "B", successorId: "C" },
+];
+
+test("validates new dependencies in priority order", () => {
+  assert.equal(validateNewDependency(chain, ["A|A"], "A", "A"), "self");
+  assert.equal(validateNewDependency(chain, ["A|B"], "A", "B"), "duplicate");
+  assert.equal(validateNewDependency(chain, ["A|B"], "B", "A"), "occupied");
+  assert.equal(validateNewDependency(chain, [], "B", "A"), "cycle");
+  assert.equal(validateNewDependency(chain, [], "C", "A"), "cycle");
+  assert.equal(validateNewDependency(chain, ["C|D"], "D", "C"), "occupied");
+  assert.equal(validateNewDependency(chain, [], "A", "C"), null);
+  assert.equal(validateNewDependency(chain, [], "C", "D"), null);
+});
+
+test("extracts unique occupied pairs in either direction, excluding other projects and dependency inverses", () => {
+  const relation = (id, relation_type, project_id = "project") => ({ id, relation_type, project_id });
+  assert.deepEqual(
+    extractGanttRelations(
+      [
+        {
+          id: "B",
+          issue_relation: [
+            relation("A", "blocked_by"),
+            relation("C", "relates_to"),
+            relation("C", "duplicate"),
+            relation("D", "start_before"),
+            relation("E", "finish_before"),
+            relation("F", "implemented_by"),
+            relation("G", "duplicate", "other"),
+            relation("B", "duplicate"),
+          ],
+        },
+        { id: "C", issue_relation: [relation("B", "relates_to")] },
+        { id: "A", issue_relation: [relation("B", "blocking")] },
+        { id: "H", issue_related: [relation("I", "duplicate")] },
+      ],
+      "project"
+    ),
+    {
+      dependencies: [{ predecessorId: "A", successorId: "B" }],
+      otherPairs: ["B|C", "B|D", "B|E", "B|F", "H|I"],
+    }
+  );
+});
+
+test("cycle traversal terminates even if existing data already contains a cycle", () => {
+  assert.equal(validateNewDependency([...chain, { predecessorId: "C", successorId: "A" }], [], "D", "A"), null);
 });

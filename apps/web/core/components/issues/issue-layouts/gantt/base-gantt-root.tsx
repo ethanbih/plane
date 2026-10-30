@@ -49,7 +49,7 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
   const { t } = useTranslation();
   // router
   const { workspaceSlug, projectId } = useParams();
-  const dependencies = useGanttDependencies(workspaceSlug?.toString(), projectId?.toString(), !isEpic);
+  const deps = useGanttDependencies(workspaceSlug?.toString(), projectId?.toString(), !isEpic);
 
   const storeType = useIssueStoreType() as GanttStoreType;
   const { issues, issuesFilter } = useIssues(storeType);
@@ -130,7 +130,16 @@ export const BaseGanttRoot = observer(function BaseGanttRoot(props: IBaseGanttRo
       <TimeLineTypeContext.Provider value={GANTT_TIMELINE_TYPE.ISSUE}>
         <div className="h-full w-full">
           <GanttChartRoot
-            dependencies={dependencies}
+            dependencies={deps?.dependencies}
+            dependencyActions={
+              isAllowed && !isEpic && deps
+                ? {
+                    otherPairs: deps.otherPairs,
+                    create: deps.createDependency,
+                    remove: deps.removeDependency,
+                  }
+                : undefined
+            }
             border={false}
             title={isEpic ? t("epic.label", { count: 2 }) : t("issue.label", { count: 2 })}
             loaderTitle={isEpic ? t("epic.label", { count: 2 }) : t("issue.label", { count: 2 })}

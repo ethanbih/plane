@@ -11,10 +11,11 @@ import type { IBlockUpdateData, IBlockUpdateDependencyData } from "@plane/types"
 // hooks
 import { useTimeLineChartStore } from "@/hooks/use-timeline-chart";
 import { ChartViewRoot } from "./chart/root";
-import type { TGanttDependency } from "./dependencies";
+import type { TGanttDependency, TGanttDependencyActions } from "./dependencies";
 
 type GanttChartRootProps = {
   dependencies?: TGanttDependency[];
+  dependencyActions?: TGanttDependencyActions;
   border?: boolean;
   title: string;
   loaderTitle: string;
@@ -42,6 +43,7 @@ type GanttChartRootProps = {
 export const GanttChartRoot = observer(function GanttChartRoot(props: GanttChartRootProps) {
   const {
     dependencies,
+    dependencyActions,
     border = true,
     title,
     blockIds,
@@ -76,6 +78,7 @@ export const GanttChartRoot = observer(function GanttChartRoot(props: GanttChart
   return (
     <ChartViewRoot
       dependencies={dependencies}
+      dependencyActions={dependencyActions}
       border={border}
       title={title}
       blockIds={blockIds}

@@ -45,6 +45,11 @@ export interface IBaseTimelineStore {
   isDragging: boolean;
   isDependencyEnabled: boolean;
   showDependencies: boolean;
+  canEditDependencies: boolean;
+  dependencyDraftFromId: string | null;
+  setCanEditDependencies: (value: boolean) => void;
+  startDependencyDraft: (blockId: string) => void;
+  endDependencyDraft: () => void;
   //
   setBlockIds: (ids: string[]) => void;
   getBlockById: (blockId: string) => IGanttBlock;
@@ -84,6 +89,8 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
 
   rootStore: RootStore;
 
+  canEditDependencies = false;
+  dependencyDraftFromId: string | null = null;
   isDependencyEnabled = false;
   showDependencies = (() => {
     try {
@@ -104,6 +111,11 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
       activeBlockId: observable.ref,
       renderView: observable,
       showDependencies: observable,
+      canEditDependencies: observable,
+      dependencyDraftFromId: observable,
+      setCanEditDependencies: action.bound,
+      startDependencyDraft: action.bound,
+      endDependencyDraft: action.bound,
       // actions
       setIsDragging: action,
       toggleShowDependencies: action.bound,
@@ -128,7 +140,21 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
     this.blockIds = ids;
   };
 
+  setCanEditDependencies = (value: boolean) => {
+    this.canEditDependencies = value;
+    if (!value) this.endDependencyDraft();
+  };
+
+  startDependencyDraft = (blockId: string) => {
+    if (this.canEditDependencies && this.showDependencies) this.dependencyDraftFromId = blockId;
+  };
+
+  endDependencyDraft = () => {
+    this.dependencyDraftFromId = null;
+  };
+
   toggleShowDependencies = () => {
+    this.endDependencyDraft();
     this.showDependencies = !this.showDependencies;
     try {
       localStorage.setItem("bih-gantt-show-dependencies", this.showDependencies ? "1" : "0");
@@ -361,6 +387,5 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
     });
   });
 
-  // Dummy method to return if the current Block's dependency is being dragged
-  getIsCurrentDependencyDragging = computedFn((_blockId: string) => false);
+  getIsCurrentDependencyDragging = computedFn((_blockId: string) => this.dependencyDraftFromId !== null);
 }

@@ -4,85 +4,270 @@
  * See the LICENSE file for details.
  */
 
-import { useId } from "react";
+import type { RefObject } from "react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { observer } from "mobx-react";
+import { TOAST_TYPE, setToast } from "@plane/propel/toast";
 import { useTimeLineChartStore } from "@/hooks/use-timeline-chart";
 import { BLOCK_HEIGHT } from "../constants";
-import type { TGanttDependency } from "./dependency-utils";
-import { getDependencyPath, isDependencyViolated } from "./dependency-utils";
+import type { TGanttDependency, TGanttDependencyActions } from "./dependency-utils";
+import {
+  dependencyValidationMessages,
+  getDependencyPath,
+  isDependencyViolated,
+  validateNewDependency,
+} from "./dependency-utils";
 
 type Props = {
   blockIds: string[];
   dependencies: TGanttDependency[];
+  dependencyActions?: TGanttDependencyActions;
+  ganttContainerRef: RefObject<HTMLDivElement>;
   showAllBlocks: boolean;
   width: number;
 };
 
 export const GanttDependencyLayer = observer(function GanttDependencyLayer(props: Props) {
-  const { blockIds, dependencies, showAllBlocks, width } = props;
-  const { getBlockById } = useTimeLineChartStore();
+  const { blockIds, dependencies, dependencyActions, ganttContainerRef, showAllBlocks, width } = props;
+  const { getBlockById, dependencyDraftFromId, endDependencyDraft } = useTimeLineChartStore();
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [selected, setSelected] = useState<TGanttDependency | null>(null);
+  const [draft, setDraft] = useState<{ x: number; y: number; targetId: string | null } | null>(null);
   const id = useId();
   const normalMarkerId = `${id}-dependency`;
   const violatedMarkerId = `${id}-dependency-violated`;
+  const selectedMarkerId = `${id}-dependency-selected`;
   const visibleBlocks = blockIds
     .map((blockId) => getBlockById(blockId))
     .filter((block) => block && block.data && (showAllBlocks || block.start_date || block.target_date));
   const rows = new Map(
     visibleBlocks.map((block, index) => [block.id, { block, y: index * BLOCK_HEIGHT + BLOCK_HEIGHT / 2 }])
   );
+  const latest = useRef({ rows, dependencies, dependencyActions });
+  latest.current = { rows, dependencies, dependencyActions };
+  const selectedDependency =
+    selected &&
+    dependencies.find(
+      (dep) => dep.predecessorId === selected.predecessorId && dep.successorId === selected.successorId
+    );
+
+  useEffect(() => {
+    if (!dependencyActions || !selectedDependency) return;
+    const deselect = (event: MouseEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest("[data-gantt-dependency-control]"))
+        setSelected(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        setSelected(null);
+      } else if (event.key === "Delete" || event.key === "Backspace") {
+        if (event.target instanceof Element && event.target.closest("input, textarea, [contenteditable=true]")) return;
+        event.preventDefault();
+        event.stopPropagation();
+        void dependencyActions.remove(selectedDependency.predecessorId, selectedDependency.successorId);
+        setSelected(null);
+      }
+    };
+    document.addEventListener("mousedown", deselect);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("mousedown", deselect);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [selectedDependency, dependencyActions]);
+
+  const canEditDependencies = !!dependencyActions;
+  useEffect(() => {
+    if (!dependencyDraftFromId || !canEditDependencies) return;
+    setSelected(null);
+    setDraft(null);
+    const readPointer = (event: MouseEvent) => {
+      const rect = svgRef.current?.getBoundingClientRect();
+      if (!rect) return null;
+      const element = document.elementFromPoint(event.clientX, event.clientY);
+      const block = element?.closest('[id^="gantt-block-"]');
+      const targetId =
+        block && ganttContainerRef.current?.contains(block) ? block.id.slice("gantt-block-".length) : null;
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top, targetId };
+    };
+    const onMouseMove = (event: MouseEvent) => setDraft(readPointer(event));
+    const onMouseUp = (event: MouseEvent) => {
+      const target = readPointer(event)?.targetId;
+      const { rows: currentRows, dependencies: currentDependencies, dependencyActions: actions } = latest.current;
+      if (target && currentRows.has(target) && actions) {
+        const error = validateNewDependency(currentDependencies, actions.otherPairs, dependencyDraftFromId, target);
+        if (error) {
+          setToast({ type: TOAST_TYPE.ERROR, title: "Không nối được", message: dependencyValidationMessages[error] });
+        } else {
+          void actions.create(dependencyDraftFromId, target);
+        }
+      }
+      endDependencyDraft();
+    };
+    const cancel = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      endDependencyDraft();
+    };
+    const cancelOnBlur = () => endDependencyDraft();
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+    document.addEventListener("keydown", cancel, true);
+    window.addEventListener("blur", cancelOnBlur);
+    return () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.removeEventListener("keydown", cancel, true);
+      window.removeEventListener("blur", cancelOnBlur);
+      endDependencyDraft();
+    };
+  }, [dependencyDraftFromId, canEditDependencies, ganttContainerRef, endDependencyDraft]);
+
+  const source = dependencyDraftFromId ? rows.get(dependencyDraftFromId) : undefined;
+  const target = draft?.targetId ? rows.get(draft.targetId) : undefined;
+  const targetError =
+    dependencyDraftFromId && draft?.targetId && dependencyActions
+      ? validateNewDependency(dependencies, dependencyActions.otherPairs, dependencyDraftFromId, draft.targetId)
+      : null;
+  const selectedPred = selectedDependency ? rows.get(selectedDependency.predecessorId) : undefined;
+  const selectedSucc = selectedDependency ? rows.get(selectedDependency.successorId) : undefined;
+  const fromX = selectedPred?.block.position
+    ? selectedPred.block.position.marginLeft + selectedPred.block.position.width
+    : 0;
+  const toX = selectedSucc?.block.position?.marginLeft ?? 0;
+  const deleteX = toX - fromX >= 16 ? (fromX + 8 + toX) / 2 : toX - 4;
 
   return (
-    <svg
-      className="pointer-events-none absolute top-0 left-0 z-[4] overflow-visible"
-      width={width}
-      height={visibleBlocks.length * BLOCK_HEIGHT}
-      aria-hidden="true"
+    <div
+      className="pointer-events-none absolute top-0 left-0"
+      style={{ width, height: visibleBlocks.length * BLOCK_HEIGHT }}
     >
-      <defs>
-        <marker
-          id={normalMarkerId}
-          className="text-tertiary"
-          markerWidth={6}
-          markerHeight={6}
-          refX={6}
-          refY={3}
-          orient="auto"
-        >
-          <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" />
-        </marker>
-        <marker
-          id={violatedMarkerId}
-          className="text-danger-primary"
-          markerWidth={6}
-          markerHeight={6}
-          refX={6}
-          refY={3}
-          orient="auto"
-        >
-          <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" />
-        </marker>
-      </defs>
-      {dependencies.map(({ predecessorId, successorId }) => {
-        const pred = rows.get(predecessorId);
-        const succ = rows.get(successorId);
-        if (!pred?.block.position || !succ?.block.position) return null;
-        const violated = isDependencyViolated(pred.block.target_date, succ.block.start_date);
-        return (
+      <svg
+        ref={svgRef}
+        className="pointer-events-none absolute top-0 left-0 z-[4] overflow-visible"
+        width={width}
+        height={visibleBlocks.length * BLOCK_HEIGHT}
+        aria-hidden={dependencyActions ? undefined : true}
+      >
+        <defs>
+          {[
+            [normalMarkerId, "text-tertiary"],
+            [violatedMarkerId, "text-danger-primary"],
+            [selectedMarkerId, "text-accent-primary"],
+          ].map(([markerId, className]) => (
+            <marker
+              key={markerId}
+              id={markerId}
+              className={className}
+              markerWidth={6}
+              markerHeight={6}
+              refX={6}
+              refY={3}
+              orient="auto"
+            >
+              <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" />
+            </marker>
+          ))}
+        </defs>
+        {dependencies.map(({ predecessorId, successorId }) => {
+          const pred = rows.get(predecessorId);
+          const succ = rows.get(successorId);
+          if (!pred?.block.position || !succ?.block.position) return null;
+          const violated = isDependencyViolated(pred.block.target_date, succ.block.start_date);
+          const isSelected =
+            selectedDependency?.predecessorId === predecessorId && selectedDependency?.successorId === successorId;
+          const path = getDependencyPath(
+            { x: pred.block.position.marginLeft + pred.block.position.width, y: pred.y },
+            { x: succ.block.position.marginLeft, y: succ.y },
+            BLOCK_HEIGHT
+          );
+          const select = () => setSelected({ predecessorId, successorId });
+          return (
+            <Fragment key={`${predecessorId}-${successorId}`}>
+              <path
+                d={path}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={isSelected ? 2 : 1.5}
+                className={isSelected ? "text-accent-primary" : violated ? "text-danger-primary" : "text-tertiary"}
+                markerEnd={`url(#${isSelected ? selectedMarkerId : violated ? violatedMarkerId : normalMarkerId})`}
+              />
+              {dependencyActions && (
+                <path
+                  data-gantt-dependency-control
+                  d={path}
+                  fill="none"
+                  stroke="transparent"
+                  strokeWidth={10}
+                  style={{ pointerEvents: dependencyDraftFromId ? "none" : "stroke", cursor: "pointer" }}
+                  // oxlint-disable-next-line jsx_a11y/prefer-tag-over-role -- SVG paths cannot be HTML buttons.
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Chọn phụ thuộc"
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    select();
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      select();
+                    }
+                  }}
+                />
+              )}
+            </Fragment>
+          );
+        })}
+        {dependencyDraftFromId && source?.block.position && draft && (
           <path
-            key={`${predecessorId}-${successorId}`}
-            d={getDependencyPath(
-              { x: pred.block.position.marginLeft + pred.block.position.width, y: pred.y },
-              { x: succ.block.position.marginLeft, y: succ.y },
-              BLOCK_HEIGHT
-            )}
+            d={`M ${source.block.position.marginLeft + source.block.position.width} ${source.y} L ${draft.x} ${draft.y}`}
             fill="none"
             stroke="currentColor"
-            strokeWidth={1.5}
-            className={violated ? "text-danger-primary" : "text-tertiary"}
-            markerEnd={`url(#${violated ? violatedMarkerId : normalMarkerId})`}
+            strokeWidth={2}
+            strokeDasharray="5 4"
+            className="text-accent-primary"
           />
-        );
-      })}
-    </svg>
+        )}
+        {dependencyDraftFromId && target?.block.position && (
+          <rect
+            x={target.block.position.marginLeft}
+            y={target.y - 16}
+            width={target.block.position.width}
+            height={32}
+            rx={3}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            className={targetError ? "text-danger-primary" : "text-success-primary"}
+          />
+        )}
+      </svg>
+      {dependencyActions && selectedDependency && selectedPred?.block.position && selectedSucc?.block.position && (
+        <div
+          data-gantt-dependency-control
+          className="pointer-events-auto absolute z-[8] -translate-x-1/2 -translate-y-1/2"
+          style={{ left: deleteX, top: selectedSucc.y }}
+        >
+          <button
+            type="button"
+            aria-label="Xoá phụ thuộc"
+            className="flex h-5 w-5 items-center justify-center rounded-full border border-strong bg-layer-1 text-danger-primary"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              void dependencyActions.remove(selectedDependency.predecessorId, selectedDependency.successorId);
+              setSelected(null);
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+    </div>
   );
 });

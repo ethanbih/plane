@@ -6,6 +6,62 @@
 
 export type TGanttDependency = { predecessorId: string; successorId: string };
 
+export type TGanttDependencyActions = {
+  otherPairs: string[];
+  create: (predecessorId: string, successorId: string) => Promise<void>;
+  remove: (predecessorId: string, successorId: string) => Promise<void>;
+};
+
+type Relation = { id: string; project_id: string; relation_type: string };
+type Issue = { id: string; issue_relation?: Relation[]; issue_related?: Relation[] };
+
+export function extractGanttRelations(issues: Issue[], projectId: string) {
+  const otherPairs = new Set<string>();
+  for (const issue of issues) {
+    for (const relation of [...(issue.issue_relation ?? []), ...(issue.issue_related ?? [])]) {
+      if (relation.project_id !== projectId || relation.id === issue.id) continue;
+      if (relation.relation_type !== "blocked_by" && relation.relation_type !== "blocking")
+        otherPairs.add([issue.id, relation.id].sort().join("|"));
+    }
+  }
+  return { dependencies: extractBlockedByDependencies(issues, projectId), otherPairs: [...otherPairs] };
+}
+
+export const dependencyValidationMessages = {
+  self: "Không thể nối một việc với chính nó",
+  duplicate: "Hai việc này đã được nối",
+  occupied: "Hai việc đã có quan hệ khác (liên quan/trùng lặp) — xoá quan hệ đó trước",
+  cycle: "Nối như vậy sẽ tạo vòng lặp phụ thuộc",
+};
+
+export function validateNewDependency(
+  dependencies: TGanttDependency[],
+  otherPairs: string[],
+  predecessorId: string,
+  successorId: string
+): keyof typeof dependencyValidationMessages | null {
+  if (predecessorId === successorId) return "self";
+  if (dependencies.some((dep) => dep.predecessorId === predecessorId && dep.successorId === successorId))
+    return "duplicate";
+  if (otherPairs.includes([predecessorId, successorId].sort().join("|"))) return "occupied";
+  const outgoing = new Map<string, string[]>();
+  for (const dep of dependencies) {
+    const successors = outgoing.get(dep.predecessorId) ?? [];
+    successors.push(dep.successorId);
+    outgoing.set(dep.predecessorId, successors);
+  }
+  const pending = [successorId];
+  const visited = new Set<string>();
+  while (pending.length) {
+    const id = pending.pop()!;
+    if (id === predecessorId) return "cycle";
+    if (visited.has(id)) continue;
+    visited.add(id);
+    pending.push(...(outgoing.get(id) ?? []));
+  }
+  return null;
+}
+
 export function extractBlockedByDependencies(
   issues: { id: string; issue_relation?: { id: string; project_id: string; relation_type: string }[] }[],
   projectId: string
