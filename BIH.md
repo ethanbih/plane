@@ -11,11 +11,11 @@ git fetch && git checkout bih/v1.4.2 && git pull
 docker build -f apps/web/Dockerfile.web -t bih/plane-frontend:v1.4.2-bih.<N> .
 ```
 
-Thay `<N>` bằng số bản build trước khi chạy. Chỉ image web là tùy chỉnh; các image khác giữ `makeplane/*:v1.4.2`. Đo thời gian build và RAM trong lần đầu.
+Thay `<N>` bằng số bản build trước khi chạy. Chỉ image web là tùy chỉnh; các image khác giữ `makeplane/*:v1.4.2`. Thời gian đo được: ~1 phút 47 giây trên VM srv-AI (2026-10-30), ~2 phút 15 giây trên máy dev. Source trên VM ở `/opt/bih-plane-src` (thuộc root ⇒ lệnh git cần `sudo`).
 
 ## Dùng trong BIH-OPS
 
-Đặt `PLANE_FRONTEND_IMAGE=bih/plane-frontend:v1.4.2-bih.<N>` trong env của Plane, rồi chạy `docker compose … up -d plane-web` (thay `…` bằng tham số compose của BIH-OPS). Rollback: bỏ biến này để trở về `makeplane/plane-frontend:v1.4.2`, rồi chạy lại lệnh compose.
+Đặt `PLANE_FRONTEND_IMAGE=bih/plane-frontend:v1.4.2-bih.<N>` trong env của Plane, rồi chạy `docker compose … up -d --no-deps plane-web` (`--no-deps` để không khởi động lại db/api; thay `…` bằng tham số compose của BIH-OPS). Rollback: bỏ biến này để trở về `makeplane/plane-frontend:v1.4.2`, rồi chạy lại lệnh compose.
 
 ## Nâng Plane
 
