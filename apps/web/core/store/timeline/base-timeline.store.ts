@@ -44,6 +44,7 @@ export interface IBaseTimelineStore {
   renderView: any;
   isDragging: boolean;
   isDependencyEnabled: boolean;
+  showDependencies: boolean;
   //
   setBlockIds: (ids: string[]) => void;
   getBlockById: (blockId: string) => IGanttBlock;
@@ -64,6 +65,7 @@ export interface IBaseTimelineStore {
   updateBlockPosition: (id: string, deltaLeft: number, deltaWidth: number, ignoreDependencies?: boolean) => void;
   getNumberOfDaysFromPosition: (position: number | undefined) => number | undefined;
   setIsDragging: (isDragging: boolean) => void;
+  toggleShowDependencies: () => void;
   initGantt: () => void;
 
   getDateFromPositionOnGantt: (position: number, offsetDays: number) => Date | undefined;
@@ -83,6 +85,13 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
   rootStore: RootStore;
 
   isDependencyEnabled = false;
+  showDependencies = (() => {
+    try {
+      return localStorage.getItem("bih-gantt-show-dependencies") !== "0";
+    } catch {
+      return true;
+    }
+  })();
 
   constructor(_rootStore: RootStore) {
     makeObservable(this, {
@@ -94,8 +103,10 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
       currentViewData: observable,
       activeBlockId: observable.ref,
       renderView: observable,
+      showDependencies: observable,
       // actions
       setIsDragging: action,
+      toggleShowDependencies: action.bound,
       setBlockIds: action.bound,
       initGantt: action.bound,
       updateCurrentView: action.bound,
@@ -115,6 +126,15 @@ export class BaseTimeLineStore implements IBaseTimelineStore {
    */
   setBlockIds = (ids: string[]) => {
     this.blockIds = ids;
+  };
+
+  toggleShowDependencies = () => {
+    this.showDependencies = !this.showDependencies;
+    try {
+      localStorage.setItem("bih-gantt-show-dependencies", this.showDependencies ? "1" : "0");
+    } catch {
+      // Keep the toggle usable when browser storage is unavailable.
+    }
   };
 
   /**

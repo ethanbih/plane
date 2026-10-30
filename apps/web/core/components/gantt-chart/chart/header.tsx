@@ -20,6 +20,7 @@ import { useTimeLineChartStore } from "@/hooks/use-timeline-chart";
 import { GANTT_BREADCRUMBS_HEIGHT } from "../constants";
 
 type Props = {
+  showDependencyToggle?: boolean;
   blockIds: string[];
   fullScreenMode: boolean;
   handleChartView: (view: TGanttViews) => void;
@@ -34,7 +35,7 @@ export const GanttChartHeader = observer(function GanttChartHeader(props: Props)
   const { blockIds, fullScreenMode, handleChartView, handleToday, loaderTitle, toggleFullScreenMode, showToday } =
     props;
   // chart hook
-  const { currentView } = useTimeLineChartStore();
+  const { currentView, showDependencies, toggleShowDependencies } = useTimeLineChartStore();
 
   return (
     <Row
@@ -71,6 +72,19 @@ export const GanttChartHeader = observer(function GanttChartHeader(props: Props)
           onClick={handleToday}
         >
           {t("common.today")}
+        </button>
+      )}
+
+      {props.showDependencyToggle && (
+        <button
+          type="button"
+          className={cn("rounded-md bg-layer-transparent p-1 px-2 text-11 hover:bg-layer-transparent-hover", {
+            "bg-layer-transparent-selected": showDependencies,
+          })}
+          aria-pressed={showDependencies}
+          onClick={toggleShowDependencies}
+        >
+          Phụ thuộc
         </button>
       )}
 

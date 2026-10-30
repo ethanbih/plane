@@ -28,10 +28,13 @@ import { IssueBulkOperationsRoot } from "@/components/issues/bulk-operations";
 import { useBulkOperationStatus } from "@/hooks/use-bulk-operation-status";
 // local imports
 import { DEFAULT_BLOCK_WIDTH, GANTT_SELECT_GROUP, HEADER_HEIGHT } from "../constants";
+import type { TGanttDependency } from "../dependencies";
+import { GanttDependencyLayer } from "../dependencies";
 import { getItemPositionWidth } from "../views";
 import { TimelineDragHelper } from "./timeline-drag-helper";
 
 type Props = {
+  dependencies?: TGanttDependency[];
   blockIds: string[];
   canLoadMoreBlocks?: boolean;
   loadMoreBlocks?: () => void;
@@ -61,6 +64,7 @@ type Props = {
 
 export const GanttChartMainContent = observer(function GanttChartMainContent(props: Props) {
   const {
+    dependencies,
     blockIds,
     loadMoreBlocks,
     blockToRender,
@@ -86,7 +90,7 @@ export const GanttChartMainContent = observer(function GanttChartMainContent(pro
   // refs
   const ganttContainerRef = useRef<HTMLDivElement>(null);
   // chart hook
-  const { currentView, currentViewData } = useTimeLineChartStore();
+  const { currentView, currentViewData, showDependencies } = useTimeLineChartStore();
   // plane web hooks
   const isBulkOperationsEnabled = useBulkOperationStatus();
 
@@ -224,6 +228,14 @@ export const GanttChartMainContent = observer(function GanttChartMainContent(pro
                       showAllBlocks={showAllBlocks}
                       updateBlockDates={updateBlockDates}
                     />
+                    {!!dependencies?.length && showDependencies && (
+                      <GanttDependencyLayer
+                        blockIds={blockIds}
+                        dependencies={dependencies}
+                        showAllBlocks={showAllBlocks}
+                        width={itemsContainerWidth}
+                      />
+                    )}
                   </div>
                 )}
               </div>
